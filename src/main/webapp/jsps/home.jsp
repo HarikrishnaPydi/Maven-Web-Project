@@ -10,7 +10,7 @@
 </head>
 <body>
 <h1 align="center">Welcome to KK DevOps With AWS & SRE Pls reachout me 8919551656 6:30 AM to 8:30 AM Starts With May 25 </h1>
-<h1 align="center"> KK FUNDA</h1>
+<h1 align="center"> Pydi Cloud</h1>
 <hr>
 <br>
 	<h1><h3> Server Side IP Address </h3><br>
