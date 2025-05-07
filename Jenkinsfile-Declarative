@@ -1,0 +1,51 @@
+pipeline {
+    agent any
+    tools {
+        maven "maven-3.9.9"
+    }
+    stages
+    {
+        stage('git checkout')
+        {
+            steps
+            {
+                git branch: 'development', credentialsId: 'gtihub-credentials', url: 'https://github.com/HarikrishnaPydi/Maven-Web-Project.git'
+            }
+        }
+        stage('COMPILE')
+        {
+            steps
+            {
+                sh "mvn compile"
+            }
+        }
+        stage("BUILD THE ARTIFACTORY")
+        {
+            steps
+            {
+                sh "mvn clean package"
+            }
+        }
+        stage('Check to The SQ Report')
+        {
+            steps
+            {
+                sh "mvn clean sonar:sonar package"
+            }
+        }
+        stage('deploy to Nexus')
+        {
+            steps
+            {
+                sh "mvn sonar:sonar deploy"
+            }
+        }
+        stage('deploy to tomcat')
+        {
+            steps
+            {
+                deploy adapters: [tomcat9(credentialsId: 'tomcat-credential', path: '', url: 'http://52.1.54.148:8080/')], contextPath: null, war: '**/maven-web-application.war'
+            }
+        }
+    }
+} // ending pipeline
