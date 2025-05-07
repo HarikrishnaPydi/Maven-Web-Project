@@ -1,0 +1,194 @@
+To integrate your existing Jenkins scripted pipeline with Jira to automatically create a Jira ticket when the build fails or succeeds, I'll modify your pipeline to use the Jira Pipeline Steps Plugin. This approach leverages your prior interest in Jira integration (from our conversations on May 6, 2025) and ensures tickets are created with dynamic fields like job name, build number, and status. I'll also include logic to avoid duplicate tickets and maintain your Slack notifications.
+Prerequisites
+Jira Pipeline Steps Plugin: Ensure it's installed in Jenkins (Manage Jenkins > Manage Plugins).
+Jira Configuration:
+In Manage Jenkins > Configure System, add your Jira site (e.g., https://your-jira-instance.atlassian.net) under the Jira section.
+Use an API token for Jira Cloud (created from Atlassian account settings) or username/password for Jira Server.
+Store credentials in Jenkins Credentials Manager (e.g., ID: jira-credentials-id).
+Permissions: The Jira user must have permission to create issues in the target project.
+Jira Project Key: Know your Jira project key (e.g., PROJ).
+Modified Pipeline Script
+Below is your pipeline updated to create Jira tickets for both success and failure, with checks to avoid duplicate tickets. The script retains your Slack notifications and integrates seamlessly with your existing stages.
+groovy
+// ✅ Main Pipeline
+node {
+    notifyBuild('STARTED')
+
+    try {
+        echo "Git branch name: ${env.BRANCH_NAME}"
+        echo "Build number is: ${env.BUILD_NUMBER}"
+        echo "Node name is: ${env.NODE_NAME}"
+
+        def mavenHome = tool name: "maven-3.9.9"
+
+        stage('Git Checkout') {
+            git branch: 'development', credentialsId: 'gtihub-credentials', url: 'https://github.com/HarikrishnaPydi/Maven-Web-Project.git'
+        }
+
+        stage('Build') {
+            sh "${mavenHome}/bin/mvn clean package"
+        }
+
+        stage('SonarQube Report') {
+            sh "${mavenHome}/bin/mvn clean sonar:sonar package"
+        }
+
+        stage('Deploy to Nexus') {
+            sh "${mavenHome}/bin/mvn sonar:sonar deploy"
+        }
+
+        stage('Deploy to Tomcat') {
+            deploy adapters: [tomcat9(credentialsId: 'tomcat-credential', path: '', url: 'http://52.1.54.148:8080/')], contextPath: null, war: '**/maven-web-application.war'
+        }
+
+        // ✅ Mark success
+        currentBuild.result = 'SUCCESS'
+
+    } catch (Exception e) {
+        currentBuild.result = 'FAILURE'
+        throw e
+    } finally {
+        // Create Jira ticket and send Slack notification
+        createJiraTicket(currentBuild.result)
+        notifyBuild(currentBuild.result)
+        // Clean workspace
+        cleanWs()
+    }
+}
+
+// ✅ Define the Slack Notification Function
+def notifyBuild(String buildStatus = 'STARTED') {
+    buildStatus = buildStatus ?: 'SUCCESS'
+
+    // Default values
+    def colorCode = '#FF0000' // red
+    def subject = "${buildStatus}: Job '${env.JOB_NAME} [#${env.BUILD_NUMBER}]'"
+    def summary = "${subject} (${env.BUILD_URL})"
+
+    // Set color based on build status
+    if (buildStatus == 'STARTED') {
+        colorCode = '#FFFF00' // yellow
+    } else if (buildStatus == 'SUCCESS') {
+        colorCode = '#00FF00' // green
+    } else {
+        colorCode = '#FF0000' // red
+    }
+
+    // Send Slack notification
+    slackSend(channel: '#airtel-devteam', color: colorCode, message: summary)
+}
+
+// ✅ Define the Jira Ticket Creation Function
+def createJiraTicket(String buildStatus) {
+    def jiraSite = 'your-jira-site' // Replace with your Jira site name configured in Jenkins
+    def projectKey = 'PROJ' // Replace with your Jira project key
+    def issueSummary = "${buildStatus}: Jenkins Job '${env.JOB_NAME}' #${env.BUILD_NUMBER}"
+    def issueDescription = """
+        Build Status: ${buildStatus}
+        Job Name: ${env.JOB_NAME}
+        Build Number: ${env.BUILD_NUMBER}
+        Build URL: ${env.BUILD_URL}
+        Branch: ${env.BRANCH_NAME ?: 'unknown'}
+        Node: ${env.NODE_NAME ?: 'unknown'}
+    """
+
+    // Check for existing Jira issue to avoid duplicates
+    def existingIssue = checkExistingJiraIssue(jiraSite, projectKey, issueSummary)
+    if (existingIssue) {
+        echo "Jira issue already exists: ${existingIssue.key}"
+        // Optionally update existing issue
+        jiraComment(
+            issueKey: existingIssue.key,
+            body: "Build re-run with status: ${buildStatus}. See ${env.BUILD_URL}",
+            site: jiraSite
+        )
+    } else {
+        // Create new Jira issue
+        def issue = jiraCreateIssue(
+            site: jiraSite,
+            projectKey: projectKey,
+            issueType: 'Task', // Use 'Bug' for failures if preferred
+            summary: issueSummary,
+            description: issueDescription,
+            labels: ['jenkins', buildStatus.toLowerCase()]
+        )
+        echo "Created Jira issue: ${issue.data.key}"
+    }
+}
+
+// ✅ Check for Existing Jira Issue
+def checkExistingJiraIssue(String jiraSite, String projectKey, String summary) {
+    def jql = "project = ${projectKey} AND summary ~ \"${summary}\" AND status != Closed"
+    def searchResult = jiraJqlSearch(
+        jql: jql,
+        site: jiraSite
+    )
+    return searchResult.data.issues ? searchResult.data.issues[0] : null
+}
+Key Changes and Explanations
+Jira Ticket Creation:
+A new createJiraTicket function is added to handle ticket creation in the finally block, ensuring it runs for both success and failure.
+Tickets are created with dynamic fields: job name, build number, status, build URL, branch, and node name.
+The issue type is set to Task (you can change to Bug for failures by adding logic like issueType: buildStatus == 'FAILURE' ? 'Bug' : 'Task').
+Duplicate Prevention:
+The checkExistingJiraIssue function uses JQL to search for open issues with the same summary in the project.
+If an issue exists, a comment is added instead of creating a new ticket, preventing duplicates.
+Jira Configuration:
+Replace your-jira-site with the Jira site name configured in Jenkins.
+Replace PROJ with your actual Jira project key.
+Ensure jira-credentials-id is set up in Jenkins Credentials Manager with your Jira API token or username/password.
+Workspace Cleanup:
+Added cleanWs() in the finally block to clean the workspace, as you previously showed interest in this (May 6, 2025).
+Slack Integration:
+Your existing notifyBuild function for Slack notifications is unchanged and runs alongside Jira ticket creation.
+Setup Instructions
+Install Plugins:
+Go to Manage Jenkins > Manage Plugins and install Jira Pipeline Steps Plugin and Workspace Cleanup Plugin (if not already installed).
+Configure Jira:
+In Manage Jenkins > Configure System, add your Jira site under the Jira section.
+Add credentials (e.g., ID: jira-credentials-id) with your Jira email and API token (for Jira Cloud) or username/password (for Jira Server).
+Test the connection by clicking Validate Settings.
+Update Pipeline:
+Copy the modified script into your Jenkins job’s pipeline configuration or Jenkinsfile.
+Replace placeholders (your-jira-site, PROJ) with your actual values.
+Test the Pipeline:
+Trigger the pipeline with a successful build (e.g., run as is).
+Trigger a failure by modifying the build stage (e.g., change mvn clean package to mvn invalid).
+Check Jira for new tickets with summaries like SUCCESS: Jenkins Job 'your-job-name' #123 or FAILURE: Jenkins Job 'your-job-name' #123.
+Verify Slack notifications in the #airtel-devteam channel.
+Troubleshooting
+Jira Authentication Errors:
+Ensure the API token is valid and not expired.
+For Jira Cloud, avoid CAPTCHA issues by logging in manually first.
+Check Jenkins logs for errors like 401 Unauthorized.
+No Ticket Created:
+Verify the project key (PROJ) is correct and the Jira user has permission to create issues.
+Ensure the Jira site name matches the one configured in Jenkins.
+Duplicate Tickets:
+If duplicates occur, check the JQL query in checkExistingJiraIssue. Adjust the summary or JQL to be more specific.
+Pipeline Syntax Errors:
+Use the Jenkins Pipeline Syntax tool to generate jiraCreateIssue or jiraJqlSearch steps if you encounter issues.
+Ensure the jira-steps plugin is up-to-date.
+Customization Options
+Conditional Issue Types:
+Modify createJiraTicket to use Bug for failures:
+groovy
+issueType: buildStatus == 'FAILURE' ? 'Bug' : 'Task'
+Assignee:
+Add an assignee by including assignee: [name: 'username'] in jiraCreateIssue (replace username with a valid Jira user).
+Error Details:
+For failures, capture the exception message:
+groovy
+catch (Exception e) {
+    currentBuild.result = 'FAILURE'
+    issueDescription += "\nError: ${e.message}"
+    throw e
+}
+Custom Labels:
+Add more labels (e.g., labels: ['jenkins', buildStatus.toLowerCase(), 'devops']) for better filtering in Jira.
+Testing and Verification
+Run the pipeline with a successful build and check Jira for a Task with a summary like SUCCESS: Jenkins Job 'your-job-name' #123.
+Introduce a failure (e.g., invalid Maven command) and verify a Task (or Bug if modified) is created with failure details.
+Confirm Slack notifications appear in #airtel-devteam with appropriate colors (green for success, red for failure).
+Check for duplicate prevention by re-running the pipeline with the same build number (e.g., manually trigger).
+This solution builds on your existing pipeline and aligns with your prior requests for Jira and Slack integration. If you need help with specific errors, custom fields, or additional features (e.g., attaching logs to Jira tickets), let me know!
