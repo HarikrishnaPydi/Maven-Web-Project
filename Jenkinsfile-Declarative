@@ -3,49 +3,68 @@ pipeline {
     tools {
         maven "maven-3.9.9"
     }
-    stages
-    {
-        stage('git checkout')
-        {
-            steps
-            {
+    environment {
+        SLACK_CHANNEL = '#aitel-devteam'
+        SLACK_TOKEN = credentials('slackc') // Use your Slack token credentials ID here
+    }
+    stages {
+        stage('git checkout') {
+            steps {
                 git branch: 'development', credentialsId: 'gtihub-credentials', url: 'https://github.com/HarikrishnaPydi/Maven-Web-Project.git'
             }
         }
-        stage('COMPILE')
-        {
-            steps
-            {
+        stage('COMPILE') {
+            steps {
                 sh "mvn compile"
             }
         }
-        stage("BUILD THE ARTIFACTORY")
-        {
-            steps
-            {
+        stage("BUILD THE ARTIFACTORY") {
+            steps {
                 sh "mvn clean package"
             }
         }
-        stage('Check to The SQ Report')
-        {
-            steps
-            {
+        stage('Check to The SQ Report') {
+            steps {
                 sh "mvn clean sonar:sonar package"
             }
         }
-        stage('deploy to Nexus')
-        {
-            steps
-            {
+        stage('deploy to Nexus') {
+            steps {
                 sh "mvn sonar:sonar deploy"
             }
         }
-        stage('deploy to tomcat')
-        {
-            steps
-            {
+        stage('deploy to tomcat') {
+            steps {
                 deploy adapters: [tomcat9(credentialsId: 'tomcat-credential', path: '', url: 'http://52.1.54.148:8080/')], contextPath: null, war: '**/maven-web-application.war'
             }
         }
     }
-} // ending pipeline
+
+    post {
+    success {
+        slackSend(
+            channel: '#airtel-devteam',
+            color: 'good',
+            message: "✅ Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} (<${env.BUILD_URL}|View Logs>)",
+            tokenCredentialId: 'slackc'
+        )
+    }
+    failure {
+        slackSend(
+            channel: '#aitel-devteam',
+            color: 'danger',
+            message: "❌ Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (<${env.BUILD_URL}|View Logs>)",
+            tokenCredentialId: 'slackc'
+        )
+    }
+    always {
+        slackSend(
+            channel: '#aityel-devteam',
+            color: '#439FE0',
+            message: "📢 Build completed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            tokenCredentialId: 'slackc'
+        )
+    }
+}
+
+}
