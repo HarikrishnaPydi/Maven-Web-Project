@@ -10,7 +10,7 @@ node {
         def mavenHome = tool name: "maven-3.9.9"
 
         stage('Git Checkout') {
-            git branch: 'development', credentialsId: 'gtihub-credentials', url: 'https://github.com/HarikrishnaPydi/Maven-Web-Project.git'
+            git branch: 'hotfix', credentialsId: 'gtihub-credentials', url: 'https://github.com/HarikrishnaPydi/Maven-Web-Project.git'
         }
 
         stage('Build') {
