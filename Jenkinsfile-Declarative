@@ -1,70 +1,95 @@
 pipeline {
     agent any
-    tools {
-        maven "maven-3.9.9"
-    }
+
     environment {
-        SLACK_CHANNEL = '#aitel-devteam'
-        SLACK_TOKEN = credentials('slackc') // Use your Slack token credentials ID here
+        MAVEN_HOME = tool name: "maven-3.9.9"
     }
+
     stages {
-        stage('git checkout') {
+        stage('Notify Build Started') {
+            steps {
+                script {
+                    notifyBuild('STARTED')
+                }
+            }
+        }
+
+        stage('Git Checkout') {
             steps {
                 git branch: 'development', credentialsId: 'gtihub-credentials', url: 'https://github.com/HarikrishnaPydi/Maven-Web-Project.git'
             }
         }
-        stage('COMPILE') {
+
+        stage('Build') {
             steps {
-                sh "mvn compile"
+                sh "${MAVEN_HOME}/bin/mvn clean package"
             }
         }
-        stage("BUILD THE ARTIFACTORY") {
+
+        stage('SonarQube Report') {
             steps {
-                sh "mvn clean package"
+                sh "${MAVEN_HOME}/bin/mvn clean sonar:sonar package"
             }
         }
-        stage('Check to The SQ Report') {
+
+        stage('Deploy to Nexus') {
             steps {
-                sh "mvn clean sonar:sonar package"
+                sh "${MAVEN_HOME}/bin/mvn sonar:sonar deploy"
             }
         }
-        stage('deploy to Nexus') {
+
+        stage('Deploy to Tomcat') {
             steps {
-                sh "mvn sonar:sonar deploy"
-            }
-        }
-        stage('deploy to tomcat') {
-            steps {
-                deploy adapters: [tomcat9(credentialsId: 'tomcat-credential', path: '', url: 'http://34.224.85.153:8080/')], contextPath: null, war: '**/maven-web-application.war'
+                deploy adapters: [tomcat9(credentialsId: 'tomcat-credential', path: '', url: 'http://54.172.174.168:8080/')], contextPath: null, war: '**/maven-web-application.war'
             }
         }
     }
 
     post {
-    success {
-        slackSend(
-            channel: '#airtel-devteam',
-            color: 'good',
-            message: "✅ Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} (<${env.BUILD_URL}|View Logs>)",
-            tokenCredentialId: 'slackc'
-        )
-    }
-    failure {
-        slackSend(
-            channel: '#aitel-devteam',
-            color: 'danger',
-            message: "❌ Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (<${env.BUILD_URL}|View Logs>)",
-            tokenCredentialId: 'slackc'
-        )
-    }
-    always {
-        slackSend(
-            channel: '#aityel-devteam',
-            color: '#439FE0',
-            message: "📢 Build completed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-            tokenCredentialId: 'slackc'
-        )
+        success {
+            script {
+                currentBuild.result = 'SUCCESS'
+                notifyBuild('SUCCESS')
+                sendEmailNotification('SUCCESS')
+            }
+        }
+
+        failure {
+            script {
+                currentBuild.result = 'FAILURE'
+                notifyBuild('FAILURE')
+                sendEmailNotification('FAILURE')
+            }
+        }
     }
 }
 
+// Slack Notification Function
+def notifyBuild(String buildStatus = 'STARTED') {
+    def colorCode = '#FF0000' // Red by default
+    def subject = "${buildStatus}: Job '${env.JOB_NAME} [#${env.BUILD_NUMBER}]'"
+    def summary = "${subject} (${env.BUILD_URL})"
+
+    if (buildStatus == 'STARTED') {
+        colorCode = '#FFFF00' // Yellow
+    } else if (buildStatus == 'SUCCESS') {
+        colorCode = '#00FF00' // Green
+    }
+
+    slackSend(channel: '#airtel-devteam', color: colorCode, message: summary)
+}
+
+// Email Notification Function
+def sendEmailNotification(String buildStatus = 'STARTED') {
+    emailext (
+        subject: "Jenkins Build - ${buildStatus}: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+        body: """
+            <p><b>Status:</b> ${buildStatus}</p>
+            <p><b>Job:</b> ${env.JOB_NAME}</p>
+            <p><b>Build #:</b> ${env.BUILD_NUMBER}</p>
+            <p><b>URL:</b> <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+        """,
+        mimeType: 'text/html',
+        to: 'haripydi777@gmail.com'
+    )
 }
