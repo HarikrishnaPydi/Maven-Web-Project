@@ -1,0 +1,97 @@
+pipeline {
+    agent any
+
+    tools {
+        maven "maven-3.9.9"
+    }
+
+    stages {
+        stage('Notify Build Started') {
+            steps {
+                script {
+                    notifyBuild('STARTED')
+                }
+            }
+        }
+
+        stage('GIT CHECKOUT') {
+            steps {
+                git branch: 'development', credentialsId: 'gtihub-credentials', url: 'https://github.com/HarikrishnaPydi/Maven-Web-Project.git'
+            }
+        }
+
+        stage('BUILD AND GENERATE SQ REPORT') {
+            steps {
+                parallel (
+                    'BUILD': {
+                        sh "mvn clean package"
+                    },
+                    'SQ REPORT': {
+                        sh "mvn sonar:sonar"
+                    }
+                )
+            }
+        }
+
+        stage('DEPLOY TO NEXUS AND TOMCAT') {
+            steps {
+                parallel (
+                    'DEPLOY TO NEXUS': {
+                        sh "mvn deploy"
+                    },
+                    'DEPLOY TO TOMCAT': {
+                        deploy adapters: [tomcat9(credentialsId: 'tomcat-credential', path: '', url: 'http://54.172.174.168:8080/')], contextPath: null, war: '**/maven-web-application.war'
+                    }
+                )
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                currentBuild.result = 'SUCCESS'
+                notifyBuild('SUCCESS')
+                sendEmailNotification('SUCCESS')
+            }
+        }
+
+        failure {
+            script {
+                currentBuild.result = 'FAILURE'
+                notifyBuild('FAILURE')
+                sendEmailNotification('FAILURE')
+            }
+        }
+    }
+}
+
+// Slack Notification Function
+def notifyBuild(String buildStatus = 'STARTED') {
+    def colorCode = '#FF0000' // Red by default
+    def subject = "${buildStatus}: Job '${env.JOB_NAME} [#${env.BUILD_NUMBER}]'"
+    def summary = "${subject} (${env.BUILD_URL})"
+
+    if (buildStatus == 'STARTED') {
+        colorCode = '#FFFF00' // Yellow
+    } else if (buildStatus == 'SUCCESS') {
+        colorCode = '#00FF00' // Green
+    }
+
+    slackSend(channel: '#airtel-devteam', color: colorCode, message: summary)
+}
+
+// Email Notification Function
+def sendEmailNotification(String buildStatus = 'STARTED') {
+    emailext (
+        subject: "Jenkins Build - ${buildStatus}: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+        body: """
+            <p><b>Status:</b> ${buildStatus}</p>
+            <p><b>Job:</b> ${env.JOB_NAME}</p>
+            <p><b>Build #:</b> ${env.BUILD_NUMBER}</p>
+            <p><b>URL:</b> <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+        """,
+        mimeType: 'text/html',
+        to: 'haripydi777@gmail.com'
+    )
+}
