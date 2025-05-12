@@ -19,7 +19,7 @@ This project demonstrates a real-time **Jenkins Scripted Pipeline** that automat
 
 ## 🧭 CI/CD Pipeline Flow
 
-![CI/CD Flow](https://files.oaiusercontent.com/file-000000004c7461f8a982cf2d3aa8eb91)
+![CI/CD Flow](../Diagrams/)
 
 ---
 
