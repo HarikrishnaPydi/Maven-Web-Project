@@ -18,7 +18,7 @@ This project demonstrates a real-time **Jenkins Scripted Pipeline** that automat
 
 ## 🧭 CI/CD Pipeline Flow
 
-![CI/CD Flow](../CI-CD.arch.md)
+![CI/CD Flow](../CI-CD.arch.md.png)
 
 ---
 
